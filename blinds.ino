@@ -25,10 +25,9 @@ const PROGMEM uint8_t LED_PIN = D4;
 const PROGMEM uint8_t UP_PIN = D0;
 const PROGMEM uint8_t DOWN_PIN = D5;
 
-const PROGMEM uint8_t POWER_LINE_PIN_1 = D2;
-const PROGMEM uint8_t POWER_LINE_PIN_2 = D3;
+const PROGMEM uint8_t POWER_LINE_PIN = D2;
 
-const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN_1, POWER_LINE_PIN_2};
+const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN};
 
 String identifier = "1";
 
@@ -85,16 +84,14 @@ void setupPins() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(UP_PIN, OUTPUT);
   pinMode(DOWN_PIN, OUTPUT);
-  pinMode(POWER_LINE_PIN_1, OUTPUT);
-  pinMode(POWER_LINE_PIN_2, OUTPUT);
+  pinMode(POWER_LINE_PIN, OUTPUT);
 }
 
 void setupBlinds() {
   Serial.println("Switch off blinds by default");
   digitalWrite(UP_PIN, HIGH);
   digitalWrite(DOWN_PIN, HIGH);
-  digitalWrite(POWER_LINE_PIN_1, HIGH);
-  digitalWrite(POWER_LINE_PIN_2, HIGH);
+  digitalWrite(POWER_LINE_PIN, HIGH);
 }
 
 void setupWifi() {
@@ -300,18 +297,14 @@ void handlePositionTopic(int newPosition) {
 void blockManualLine() {
   Serial.println("blockManualLine()");
   delay(100);
-  digitalWrite(POWER_LINE_PIN_1, LOW);
-  delay(100);
-  digitalWrite(POWER_LINE_PIN_2, LOW);
+  digitalWrite(POWER_LINE_PIN, LOW);
   delay(100);
 }
 
 void unblockManualLine() {
   Serial.println("unblockManualLine()");
   delay(100);
-  digitalWrite(POWER_LINE_PIN_1, HIGH);
-  delay(100);
-  digitalWrite(POWER_LINE_PIN_2, HIGH);
+  digitalWrite(POWER_LINE_PIN, HIGH);
   delay(100);
 }
 
