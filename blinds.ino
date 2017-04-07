@@ -30,11 +30,11 @@ const PROGMEM uint8_t POWER_LINE_PIN = D5;
 
 const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN};
 
-String identifier = "2";
+String identifier = "1";
 const String SENSORNAME = "blinds-" + identifier;
 
 const PROGMEM int OTA_PORT = 8266;
-const PROGMEM char* DEFAULT_PW = "****";
+const PROGMEM char* DEFAULT_PW = "111111";
 
 const PROGMEM char* MQTT_SERVER_IP =          "****";
 const PROGMEM char* MQTT_FALLBACK_SERVER_IP = "****";
@@ -44,6 +44,8 @@ const PROGMEM char* MQTT_PASSWORD = "****";
 
 const PROGMEM char* NIGHT_MODE_TOPIC = "home-assistant/nightmode";
 const PROGMEM char* PANIC_TOPIC = "home-assistant/panic";
+const PROGMEM char* BLINDS_MANUAL_CONTROL_COMMAND_TOPIC = "home-assistant/blinds/manual/command";
+const PROGMEM char* BLINDS_MANUAL_CONTROL_STATE_TOPIC = "home-assistant/blinds/manual/status";
 
 String mainTopicsPrefix = "home-assistant/blinds/" + identifier;
 String espTopicsPrefix = "home-assistant/esp/blinds/" + identifier;
@@ -63,15 +65,15 @@ char msgBuffer[BUFFER_SIZE];
 char posBuffer[BUFFER_SIZE];
 char ipBuffer[BUFFER_SIZE];
 
-const PROGMEM char* ESP_STATE_TOPIC = "home-assistant/esp/blinds/2/status";
-const PROGMEM char* ESP_IP_TOPIC = "home-assistant/esp/blinds/2/ip";
+const PROGMEM char* ESP_STATE_TOPIC = "home-assistant/esp/blinds/1/status";
+const PROGMEM char* ESP_IP_TOPIC = "home-assistant/esp/blinds/1/ip";
 
-const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/2/status";
-const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/2/command";
-const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/2/command/admin";
-const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/2/position/command";
-const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/2/position/status";
-const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/2/log";
+const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/1/status";
+const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/1/command";
+const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/1/command/admin";
+const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/1/position/command";
+const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/1/position/status";
+const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/1/log";
 
 /*
 char ESP_STATE_TOPIC[BUFFER_SIZE];
@@ -81,11 +83,14 @@ char BLINDS_COMMAND_TOPIC[BUFFER_SIZE];
 char BLINDS_ADMIN_COMMAND_TOPIC[BUFFER_SIZE];
 char BLINDS_POSITION_TOPIC[BUFFER_SIZE];
 char BLINDS_POSITION_STATE_TOPIC[BUFFER_SIZE];
-
 */
+
 const PROGMEM char* BLINDS_OPEN = "OPEN";
 const PROGMEM char* BLINDS_CLOSE = "CLOSE";
 const PROGMEM char* BLINDS_STOP = "STOP";
+
+const String ENABLED = "ENABLED";
+const String DISABLED = "DISABLED";
 
 const int BLINDS_DURATION = 5000;//23000; //ms
 
@@ -93,6 +98,7 @@ boolean isInitial = true;
 int currentPosition;
 boolean nightMode = false;
 boolean panicMode = false;
+String manualControl = "ENABLED";
 
 WiFiClient wifiClient;
 PubSubClient pubSubClient(wifiClient);
@@ -198,31 +204,18 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
   Serial.print(payload);
   Serial.println("'");
 
-  if (String(BLINDS_COMMAND_TOPIC).equals(p_topic)) {
+  if (String(PANIC_TOPIC).equals(p_topic)) {
+    handlePanicTopic(payload);
+  } else if (String(BLINDS_COMMAND_TOPIC).equals(p_topic)) {
     handleCommandTopic(payload);
   } else if (String(BLINDS_ADMIN_COMMAND_TOPIC).equals(p_topic)) {
-    if (payload.equals(String(BLINDS_CLOSE))) {
-      moveDown(0);
-    } else if (payload.equals(String(BLINDS_OPEN))) {
-      moveUp(100);
-    }
+    handleAdminCommandTopic(payload);
   } else if (String(NIGHT_MODE_TOPIC).equals(p_topic)) {
-    if (nightMode != true && payload.equals("ON")) {
-      nightMode = true;  
-    } else if (nightMode != false && payload.equals("ON")) {
-      nightMode = false;  
-    }
-  } else if (String(PANIC_TOPIC).equals(p_topic)) {
-    if (panicMode != true && payload.equals("ON")) {
-      panicMode = true;
-      moveDown(0);
-      doPrintln("Set panic mode = true");
-    } else if (panicMode != false && payload.equals("OFF")) {
-      panicMode = false;
-      doPrintln("Set panic mode = false");
-    }
+    handleNightModeTopic(payload);
   } else if (String(BLINDS_POSITION_TOPIC).equals(p_topic)) {
     handlePositionTopic(payload.toInt());
+  } else if (String(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC).equals(p_topic)) {
+    handleManualControlTopic(payload);
   }
 }
 
@@ -232,22 +225,12 @@ void reconnect() {
     if (pubSubClient.connect(SENSORNAME.c_str(), MQTT_USER, MQTT_PASSWORD)) {
       Serial.println("connected");
 
-      boolean subscribed;
-      subscribed = pubSubClient.subscribe(BLINDS_COMMAND_TOPIC);
-      //Serial.print("Subscribed to " + String(BLINDS_COMMAND_TOPIC) + ": ");
-      //Serial.println(subscribed);
-      subscribed = pubSubClient.subscribe(BLINDS_ADMIN_COMMAND_TOPIC);
-      //Serial.print("Subscribed to " + String(BLINDS_ADMIN_COMMAND_TOPIC) + ": ");
-      //Serial.println(subscribed);
-      subscribed = pubSubClient.subscribe(BLINDS_POSITION_TOPIC);
-      //Serial.print("Subscribed to " + String(BLINDS_POSITION_TOPIC) + ": ");
-      //Serial.println(subscribed);
-      subscribed = pubSubClient.subscribe(NIGHT_MODE_TOPIC);
-      //Serial.print("Subscribed to " + String(NIGHT_MODE_TOPIC) + ": ");
-      //Serial.println(subscribed);
-      subscribed = pubSubClient.subscribe(PANIC_TOPIC);
-      //Serial.print("Subscribed to " + String(PANIC_TOPIC) + ": ");
-      //Serial.println(subscribed);
+      pubSubClient.subscribe(BLINDS_COMMAND_TOPIC);
+      pubSubClient.subscribe(BLINDS_ADMIN_COMMAND_TOPIC);
+      pubSubClient.subscribe(BLINDS_POSITION_TOPIC);
+      pubSubClient.subscribe(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC);
+      pubSubClient.subscribe(NIGHT_MODE_TOPIC);
+      pubSubClient.subscribe(PANIC_TOPIC);
     } else {
       Serial.print("ERROR: failed, rc=");
       Serial.println(pubSubClient.state());
@@ -266,7 +249,6 @@ String ipAddress2String(const IPAddress& ipAddress){
 
 void loop(void) {
   if (!pubSubClient.connected()) {
-    //Serial.println("re-connect");
     reconnect();
   }
 
@@ -292,6 +274,28 @@ void publishStateAndIp() {
   pubSubClient.publish(ESP_IP_TOPIC, ipBuffer, false);
 
   Serial.println("Done publishing state and ip");
+}
+
+void handlePanicTopic(String payload) {
+  if (payload.equals("ON")) {
+    doPrintln("----------------------------------------");
+    doPrintln("-----          PANIC MODE          -----");
+    doPrintln("----------------------------------------");
+
+    panicMode = true;
+    moveDown(0, true);
+  } else if (panicMode != false && payload.equals("OFF")) {
+    panicMode = false;
+    doPrintln("Set panic mode = false");
+  }
+}
+
+void handleAdminCommandTopic(String payload) {
+  if (payload.equals(String(BLINDS_CLOSE))) {
+      moveDown(0, true);
+    } else if (payload.equals(String(BLINDS_OPEN))) {
+      moveUp(100);
+    }
 }
 
 void handleCommandTopic(String payload) {
@@ -341,12 +345,22 @@ void handleCommandTopic(String payload) {
     }
 }
 
-void handleAdminCommandTopic(String payload) {
-  if (payload.equals(String(BLINDS_CLOSE))) {
-      moveDown(0);
-    } else if (payload.equals(String(BLINDS_OPEN))) {
-      moveUp(100);
-    }
+void handleNightModeTopic(String payload) {
+  if (nightMode != true && payload.equals("ON")) {
+    nightMode = true;  
+  } else if (nightMode != false && payload.equals("ON")) {
+    nightMode = false;  
+  }
+}
+
+void handleManualControlTopic(String payload) {
+  if (manualControl != "ENABLED" && payload.equals("ENABLED")) {
+    manualControl = "ENABLED";
+    unblockManualControl();
+  } else if (manualControl != "DISABLED" && payload.equals("DISABLED")) {
+    manualControl = "DISABLED";
+    blockManualControl();
+  }
 }
 
 void handlePositionTopic(int newPosition) {
@@ -377,14 +391,14 @@ void handlePositionTopic(int newPosition) {
   }
 }
 
-void blockManualLine() {
-  doPrintln("blockManualLine()");
+void blockManualControl() {
+  doPrintln("blockManualControl()");
   digitalWrite(POWER_LINE_PIN, LOW);
   delay(500);
 }
 
-void unblockManualLine() {
-  doPrintln("unblockManualLine()");
+void unblockManualControl() {
+  doPrintln("unblockManualControl()");
   delay(1000);
   digitalWrite(POWER_LINE_PIN, HIGH);
   delay(100);
@@ -406,7 +420,7 @@ int getDuration(int currentPosition, int newPosition) {
 }
 
 void moveUp(int newPosition) {
-  blockManualLine();
+  blockManualControl();
 
   doPrintln("Move blinds up to position " + String(newPosition));
   digitalWrite(UP_PIN, LOW);
@@ -416,24 +430,31 @@ void moveUp(int newPosition) {
   
   digitalWrite(UP_PIN, HIGH);
 
-  unblockManualLine();
+  unblockManualControl();
   
   doPrintln("Done moving blinds up\n");
   updateBlindsPosition(newPosition);
 }
 
 void moveDown(int newPosition) {
-  blockManualLine();
+  moveDown(newPosition, false);
+}
+
+void moveDown(int newPosition, boolean forceDuration) {
+  blockManualControl();
 
   doPrintln("Move blinds down to position " + String(newPosition));
   digitalWrite(DOWN_PIN, LOW);
   
   int duration = getDuration(currentPosition, newPosition);
+  if (forceDuration) {
+    duration = BLINDS_DURATION;
+  }
   waitForBlindsToMove(duration);
   
   digitalWrite(DOWN_PIN, HIGH);
 
-  unblockManualLine();
+  unblockManualControl();
   
   doPrintln("Done moving blinds down\n");
   updateBlindsPosition(newPosition);
@@ -454,21 +475,19 @@ void updateBlindsPosition(int newPosition) {
   doPrint("Publish blinds state: \"");
   boolean publishedState;
   if (newPosition == 0) {
-    publishedState = pubSubClient.publish(BLINDS_STATE_TOPIC, "closed", true);
+    pubSubClient.publish(BLINDS_STATE_TOPIC, "closed", true);
     doPrint("closed");
   } else {
-    publishedState = pubSubClient.publish(BLINDS_STATE_TOPIC, "opened", true);
+    pubSubClient.publish(BLINDS_STATE_TOPIC, "opened", true);
     doPrint("opened");
   }
   
   doPrintln("\" to " + String(BLINDS_STATE_TOPIC));
-  //Serial.println(publishedState);
 
   String positionString = String(newPosition); 
   positionString.toCharArray(posBuffer, positionString.length() + 1); 
   doPrintln("Publish blinds position: \"" + positionString + "\" to " + String(BLINDS_POSITION_STATE_TOPIC));
-  boolean publishedPosition = pubSubClient.publish(BLINDS_POSITION_STATE_TOPIC, posBuffer, true);
-  //Serial.println(publishedPosition);
+  pubSubClient.publish(BLINDS_POSITION_STATE_TOPIC, posBuffer, true);
 }
 
 void doPrint(String msg) {
