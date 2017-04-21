@@ -6,6 +6,10 @@
 #include <PubSubClient.h>
 #include <Math.h>
 #include <ArduinoOTA.h>
+#include "DHT.h"
+#include "Timer.h"
+
+Timer t;
 
 /**
 static const uint8_t D0   = 16;
@@ -21,6 +25,16 @@ static const uint8_t D9   = 3;
 static const uint8_t D10  = 1;
 */
 
+// CREDENTIALS SECTION - START
+const PROGMEM int OTA_PORT = 8266;
+const PROGMEM char* DEFAULT_PW = "****";
+const PROGMEM char* MQTT_SERVER_IP = "****";
+const PROGMEM char* MQTT_FALLBACK_SERVER_IP = "****";
+const PROGMEM uint16_t MQTT_SERVER_PORT = 1883;
+const PROGMEM char* MQTT_USER = "****";
+const PROGMEM char* MQTT_PASSWORD = "****";
+// CREDENTIALS SECTION - END
+
 const PROGMEM uint8_t LED_PIN = D4;
 
 const PROGMEM uint8_t UP_PIN = D0;
@@ -33,15 +47,6 @@ const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN};
 String identifier = "1";
 const String SENSORNAME = "blinds-" + identifier;
 
-const PROGMEM int OTA_PORT = 8266;
-const PROGMEM char* DEFAULT_PW = "111111";
-
-const PROGMEM char* MQTT_SERVER_IP =          "****";
-const PROGMEM char* MQTT_FALLBACK_SERVER_IP = "****";
-const PROGMEM uint16_t MQTT_SERVER_PORT =     ****;
-const PROGMEM char* MQTT_USER = "home-assistant";
-const PROGMEM char* MQTT_PASSWORD = "****";
-
 const PROGMEM char* NIGHT_MODE_TOPIC = "home-assistant/nightmode";
 const PROGMEM char* PANIC_TOPIC = "home-assistant/panic";
 const PROGMEM char* BLINDS_MANUAL_CONTROL_COMMAND_TOPIC = "home-assistant/blinds/manual/command";
@@ -50,14 +55,15 @@ const PROGMEM char* BLINDS_MANUAL_CONTROL_STATE_TOPIC = "home-assistant/blinds/m
 String mainTopicsPrefix = "home-assistant/blinds/" + identifier;
 String espTopicsPrefix = "home-assistant/esp/blinds/" + identifier;
 
+/**
 String espStateTopicStr = espTopicsPrefix + "/status";
 String espIpTopicStr = espTopicsPrefix + "/ip";
-
 String blindsStateTopicStr = mainTopicsPrefix + "/status";
 String blindsCommandTopicStr = mainTopicsPrefix + "/command";
 String blindsAdminCommandTopicStr = mainTopicsPrefix + "/command/admin";
 String blindsPositionTopicStr = mainTopicsPrefix + "/position/command";
 String blindsPositionStateTopicStr = mainTopicsPrefix + "/position/status";
+*/
 
 // buffer used to send/receive data with MQTT
 const uint8_t BUFFER_SIZE = 20;
@@ -103,6 +109,11 @@ String manualControl = "ENABLED";
 WiFiClient wifiClient;
 PubSubClient pubSubClient(wifiClient);
 
+#define DHTTYPE DHT22
+#define DHTPIN D3 
+
+DHT dht(DHTPIN, DHTTYPE);
+
 int commands = 0;
 
 void setup(void){
@@ -114,6 +125,8 @@ void setup(void){
   setupWifi();
   setupMqtt();
   setupOTA();
+  setupDHT();
+  setupTimer();
 }
 
 void setupPins() {
@@ -154,7 +167,7 @@ void setupWifi() {
     //reset and try again, or maybe put it to deep sleep
     ESP.reset();
     delay(5000);
-  } 
+  }
 }
 
 void setupMqtt() {
@@ -189,6 +202,31 @@ void setupOTA() {
   });
   
   ArduinoOTA.begin();
+}
+
+void setupDHT() {
+  dht.begin();
+}
+
+void setupTimer() {
+  t.every(60000, checkDHT);
+}
+
+void checkDHT() {
+  float humidity = dht.readHumidity();
+  float temperature = dht.readTemperature();
+
+  String room = (identifier <= 4) ? "wz" : "sz";
+
+  if (!isnan(humidity)) {
+    String humidityTopic = "home-assistant/humidity/" + room;
+    pubSubClient.publish(humidityTopic, String(humidity));
+  }
+
+  if (!isnan(temperature)) {
+    String temperatureTopic = "home-assistant/temperature/" + room;
+    pubSubClient.publish(temperatureTopic, String(temperature));
+  }
 }
 
 void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
@@ -255,10 +293,12 @@ void loop(void) {
   if (isInitial == true) {
     publishStateAndIp();
   }
-
+  
   pubSubClient.loop();
 
   ArduinoOTA.handle();
+
+  t.update();
 
   isInitial = false;
 }
