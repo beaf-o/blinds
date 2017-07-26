@@ -6,58 +6,70 @@
 #include <PubSubClient.h>
 #include <Math.h>
 #include <ArduinoOTA.h>
-#include "DHT.h"
+#include <ArduinoJson.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <SPI.h>
 #include "Timer.h"
+#include "Config.h"
 
-Timer t;
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
+#define BMP_SCK 13
+#define BMP_MISO 12
+#define BMP_MOSI 11 
+#define BMP_CS 10
+#define PIR_PIN    D2
+#define DHT_PIN    D7
+#define DHTTYPE   DHT22
+#define LDR_PIN    A0
 
-/**
-static const uint8_t D0   = 16;
-static const uint8_t D1   = 5;
-static const uint8_t D2   = 4;
-static const uint8_t D3   = 0;
-static const uint8_t D4   = 2;
-static const uint8_t D5   = 14;
-static const uint8_t D6   = 12;
-static const uint8_t D7   = 13;
-static const uint8_t D8   = 15;
-static const uint8_t D9   = 3;
-static const uint8_t D10  = 1;
-*/
+int ldr;
+float diffLdr = 25;
 
-// CREDENTIALS SECTION - START
-const PROGMEM int OTA_PORT = 8266;
-const PROGMEM char* DEFAULT_PW = "****";
-const PROGMEM char* MQTT_SERVER_IP = "****";
-const PROGMEM char* MQTT_FALLBACK_SERVER_IP = "****";
-const PROGMEM uint16_t MQTT_SERVER_PORT = 1883;
-const PROGMEM char* MQTT_USER = "****";
-const PROGMEM char* MQTT_PASSWORD = "****";
-// CREDENTIALS SECTION - END
+float diffTemperature = 0.1;
+float temperatureDHT;
+float temperatureBMP;
+float temperatureAvg;
+
+float diffHumidity = 1;
+float humidity;
+
+float diffPressure = 20;
+float pressure;
+
+float diffAltitude = 1;
+float altitude;
+
+int pirValue;
+int pirStatus;
+String motionStatus;
 
 const PROGMEM uint8_t LED_PIN = D4;
-
 const PROGMEM uint8_t UP_PIN = D0;
 const PROGMEM uint8_t DOWN_PIN = D1;
-
 const PROGMEM uint8_t POWER_LINE_PIN = D5;
-
 const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN};
 
-String identifier = "1";
-const String SENSORNAME = "blinds-" + identifier;
+String identifier = "5";
+//const String SENSORNAME = "blinds-" + identifier;
+const String SENSORNAME = "tester";
+const int sensorNodes[] = {6, 1};
+const int sensorNodeCount = 2;
 
 const PROGMEM char* NIGHT_MODE_TOPIC = "home-assistant/nightmode";
 const PROGMEM char* PANIC_TOPIC = "home-assistant/panic";
 const PROGMEM char* BLINDS_MANUAL_CONTROL_COMMAND_TOPIC = "home-assistant/blinds/manual/command";
 const PROGMEM char* BLINDS_MANUAL_CONTROL_STATE_TOPIC = "home-assistant/blinds/manual/status";
+const PROGMEM char* BLINDS_RESET_TOPIC = "home-assistant/blinds/reset";
 
+/**
 String mainTopicsPrefix = "home-assistant/blinds/" + identifier;
 String espTopicsPrefix = "home-assistant/esp/blinds/" + identifier;
 
-/**
 String espStateTopicStr = espTopicsPrefix + "/status";
 String espIpTopicStr = espTopicsPrefix + "/ip";
+String sensorTopicStr = home-assistant/sensors/ + "/identifier";
 String blindsStateTopicStr = mainTopicsPrefix + "/status";
 String blindsCommandTopicStr = mainTopicsPrefix + "/command";
 String blindsAdminCommandTopicStr = mainTopicsPrefix + "/command/admin";
@@ -68,18 +80,18 @@ String blindsPositionStateTopicStr = mainTopicsPrefix + "/position/status";
 // buffer used to send/receive data with MQTT
 const uint8_t BUFFER_SIZE = 20;
 char msgBuffer[BUFFER_SIZE]; 
-char posBuffer[BUFFER_SIZE];
 char ipBuffer[BUFFER_SIZE];
 
-const PROGMEM char* ESP_STATE_TOPIC = "home-assistant/esp/blinds/1/status";
-const PROGMEM char* ESP_IP_TOPIC = "home-assistant/esp/blinds/1/ip";
+const PROGMEM char* ESP_IP_TOPIC = "home-assistant/esp/blinds/5/ip";
+const PROGMEM char* SENSOR_TOPIC = "home-assistant/blinds/5/sensor";
 
-const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/1/status";
-const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/1/command";
-const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/1/command/admin";
-const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/1/position/command";
-const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/1/position/status";
-const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/1/log";
+const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/5/status";
+const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/5/command";
+const PROGMEM char* BLINDS_HEALTH_TOPIC = "home-assistant/blinds/5/health";
+const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/5/command/admin";
+const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/5/position/command";
+const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/5/position/status";
+const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/5/log";
 
 /*
 char ESP_STATE_TOPIC[BUFFER_SIZE];
@@ -98,7 +110,7 @@ const PROGMEM char* BLINDS_STOP = "STOP";
 const String ENABLED = "ENABLED";
 const String DISABLED = "DISABLED";
 
-const int BLINDS_DURATION = 5000;//23000; //ms
+const int BLINDS_DURATION = 24000; //ms
 
 boolean isInitial = true;
 int currentPosition;
@@ -108,28 +120,52 @@ String manualControl = "ENABLED";
 
 WiFiClient wifiClient;
 PubSubClient pubSubClient(wifiClient);
-
-#define DHTTYPE DHT22
-#define DHTPIN D3 
-
-DHT dht(DHTPIN, DHTTYPE);
+Timer t;
+Adafruit_BMP280 bmp; // I2C
+DHT dht(DHT_PIN, DHTTYPE);
 
 int commands = 0;
 
 void setup(void){
   Serial.begin(115200);
   Serial.println("");
+  Serial.println("Starting " + String(SENSORNAME));
 
   setupPins();
   setupConstants();
   setupWifi();
   setupMqtt();
   setupOTA();
-  setupDHT();
-  setupTimer();
+  setupSensors();
+  t.every(60000, sendAlive);
 }
 
+boolean isSensorNode() {
+  for (int s = 0; s < sensorNodeCount; s++) {
+    if (String(identifier) == String(sensorNodes[s])) {
+      return true;  
+    }
+  }
+  
+  return false;  
+}
+
+void setupSensors() {
+if (isSensorNode()) {
+    setupBmp();
+    setupDHT();
+    t.every(100, checkMotion);
+    t.every(10000, checkSensors);
+    t.every(600000, sendSensorState);  
+  }
+}
 void setupPins() {
+  Serial.println("Set up pins");
+  
+  pinMode(PIR_PIN, INPUT);
+  pinMode(DHT_PIN, INPUT);
+  pinMode(LDR_PIN, INPUT);
+  
   pinMode(LED_PIN, OUTPUT);
   pinMode(UP_PIN, OUTPUT);
   pinMode(DOWN_PIN, OUTPUT);
@@ -137,7 +173,7 @@ void setupPins() {
 
   digitalWrite(LED_PIN, LOW);
 
-  Serial.println("Switch off blinds by default");
+  Serial.println("Set all blinds to HIGH by default");
   digitalWrite(UP_PIN, HIGH);
   digitalWrite(DOWN_PIN, HIGH);
   digitalWrite(POWER_LINE_PIN, HIGH);
@@ -159,7 +195,7 @@ void setupConstants() {
 void setupWifi() {
   delay(10);
   WiFiManager wifiManager;
-  wifiManager.setTimeout(180);
+  wifiManager.setTimeout(300);
 
   if (!wifiManager.autoConnect(SENSORNAME.c_str(), DEFAULT_PW)) {
     Serial.println("Failed to connect and hit timeout");
@@ -171,7 +207,6 @@ void setupWifi() {
 }
 
 void setupMqtt() {
-  pubSubClient.setServer(MQTT_SERVER_IP, MQTT_SERVER_PORT);
   pubSubClient.setCallback(callback);
 }
 
@@ -204,28 +239,138 @@ void setupOTA() {
   ArduinoOTA.begin();
 }
 
+void setupBmp() {
+  Serial.println("Set up BMP280 sensor");
+  Wire.begin(D3,D4); 
+
+  boolean hasBmp = false;
+  for (uint8_t b = 0; b < 3; b++) {
+    if (!bmp.begin()) {  
+      delay(50);
+    } else {
+      hasBmp = true;
+      return;
+    }
+  }
+
+  Serial.println("Could not find a valid BMP280 sensor!");
+}
+
 void setupDHT() {
+  Serial.println("Set up DHT22 sensor");
   dht.begin();
 }
 
-void setupTimer() {
-  t.every(60000, checkDHT);
-}
-
-void checkDHT() {
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature();
-
-  String room = (identifier <= 4) ? "wz" : "sz";
-
-  if (!isnan(humidity)) {
-    String humidityTopic = "home-assistant/humidity/" + room;
-    pubSubClient.publish(humidityTopic, String(humidity));
+void sendSensorState() {
+  if (temperatureDHT != 0 && temperatureBMP != 0) {
+    temperatureAvg = (temperatureDHT + temperatureBMP) / 2;  
+  } else if (temperatureDHT == 0 && temperatureBMP != 0) {
+    temperatureAvg = temperatureBMP;
+  } else if (temperatureDHT != 0 && temperatureBMP == 0) {
+    temperatureAvg = temperatureDHT;
+  } else {
+    temperatureAvg = 0.00;
   }
 
-  if (!isnan(temperature)) {
-    String temperatureTopic = "home-assistant/temperature/" + room;
-    pubSubClient.publish(temperatureTopic, String(temperature));
+  int brightness = 0;
+  if (ldr != 0) {
+    brightness = 1023 - ldr;  
+  }
+
+  float correctedPressure = 0.00;
+  if (pressure != 0) {
+    correctedPressure = (pressure + 500)/100; 
+  }
+  
+  StaticJsonBuffer<BUFFER_SIZE> jsonBuffer;
+
+  JsonObject& root = jsonBuffer.createObject();
+  root["temperature"] = (String)temperatureAvg;
+  root["temperature_dht"] = (String)temperatureDHT;
+  root["temperature_bmp"] = (String)temperatureBMP;
+  root["humidity"] = (String)humidity;
+  root["brightness"] = (String)brightness;
+  root["pressure"] = (String)correctedPressure;
+  root["altitude"] = (String)altitude;
+  
+  root["motion"] = (String)motionStatus;
+
+  char buffer[root.measureLength() + 1];
+  root.printTo(buffer, sizeof(buffer));
+
+  Serial.println(buffer);
+  pubSubClient.publish(SENSOR_TOPIC, buffer, true);
+}
+
+void sendAlive() {
+  bool sent = pubSubClient.publish(BLINDS_HEALTH_TOPIC, "alive", true);
+  if (sent == true) {
+    Serial.println("Successfully sent alive.");
+  } else {
+    Serial.println("Failed to send alive.");
+  }
+}
+
+bool checkBoundSensor(float newValue, float prevValue, float maxDiff) {
+  return newValue < prevValue - maxDiff || newValue > prevValue + maxDiff;
+}
+
+void checkMotion() {
+  pirValue = digitalRead(PIR_PIN);
+
+  if (pirValue == LOW && pirStatus != 1) {
+    motionStatus = "standby";
+    pirStatus = 1;
+    sendSensorState();
+   
+  } else if (pirValue == HIGH && pirStatus != 2) {
+    motionStatus = "action";
+    pirStatus = 2;
+    sendSensorState();
+  }
+}
+
+void checkSensors() {
+  bool hasChanges = false;
+
+  float temperatureBMPNew = bmp.readTemperature();
+  if (checkBoundSensor(temperatureBMPNew, temperatureBMP, diffTemperature)) {
+    temperatureBMP = temperatureBMPNew;
+    hasChanges = true;
+  }
+
+  float temperatureDHTNew = dht.readTemperature(); //to use celsius remove the true text inside the parentheses  
+  if (checkBoundSensor(temperatureDHTNew, temperatureDHT, diffTemperature)) {
+    temperatureDHT = temperatureDHTNew;
+    hasChanges = true;
+  }
+
+  float pressureNew = bmp.readPressure();
+  if (checkBoundSensor(pressureNew, pressure, diffPressure)) {
+    pressure = pressureNew;
+    hasChanges = true;
+  }
+
+  float altitudeNew = bmp.readAltitude(1021);
+  if (checkBoundSensor(altitudeNew, altitude, diffAltitude)) {
+    altitude = altitudeNew;
+    hasChanges = true;
+  }
+
+  float humidityNew = dht.readHumidity();
+  if (checkBoundSensor(humidityNew, humidity, diffHumidity)) {
+    humidity = humidityNew;
+    hasChanges = true;
+  }
+
+  int ldrNew = analogRead(LDR_PIN);
+  if (checkBoundSensor(ldrNew, ldr, diffLdr)) {
+    ldr = ldrNew;
+    hasChanges = true;
+  }
+
+  if (hasChanges == true) {
+    sendSensorState();
   }
 }
 
@@ -236,6 +381,7 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
     payload.concat((char)p_payload[i]);
   }
 
+  Serial.println("");
   Serial.print("Handle topic: '");
   Serial.print(p_topic);
   Serial.print("' with payload: '");
@@ -244,6 +390,8 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
 
   if (String(PANIC_TOPIC).equals(p_topic)) {
     handlePanicTopic(payload);
+  } else if (String(BLINDS_RESET_TOPIC).equals(p_topic)) {
+    //handleResetTopic(payload);  
   } else if (String(BLINDS_COMMAND_TOPIC).equals(p_topic)) {
     handleCommandTopic(payload);
   } else if (String(BLINDS_ADMIN_COMMAND_TOPIC).equals(p_topic)) {
@@ -259,23 +407,103 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
 
 void reconnect() {
   while (!pubSubClient.connected()) {
-    Serial.print("Attempting MQTT connection... ");
-    if (pubSubClient.connect(SENSORNAME.c_str(), MQTT_USER, MQTT_PASSWORD)) {
-      Serial.println("connected");
-
-      pubSubClient.subscribe(BLINDS_COMMAND_TOPIC);
-      pubSubClient.subscribe(BLINDS_ADMIN_COMMAND_TOPIC);
-      pubSubClient.subscribe(BLINDS_POSITION_TOPIC);
-      pubSubClient.subscribe(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC);
-      pubSubClient.subscribe(NIGHT_MODE_TOPIC);
-      pubSubClient.subscribe(PANIC_TOPIC);
+    printState();
+    if (connectToPrimary()) {
+      subscribeToTopics();
+    } else if (connectToSecondary()) {
+      subscribeToTopics();
     } else {
-      Serial.print("ERROR: failed, rc=");
-      Serial.println(pubSubClient.state());
       Serial.println("DEBUG: try again in 5 seconds");
       delay(5000);
     }
   }
+}
+
+bool connectToPrimary() {
+  Serial.print("Attempting primary MQTT connection to ");
+  Serial.print(String(MQTT_SERVER_IP));
+  Serial.print(":");
+  Serial.print(String(MQTT_SERVER_PORT));
+  Serial.println(" ... ");
+
+  pubSubClient.setServer(MQTT_SERVER_IP, MQTT_SERVER_PORT);
+  return doConnect();
+}
+
+bool connectToSecondary() {
+  pubSubClient.setServer(MQTT_FALLBACK_SERVER_IP, MQTT_FALLBACK_SERVER_PORT);
+  
+  Serial.print("Attempting secondary MQTT connection to ");
+  Serial.print(String(MQTT_FALLBACK_SERVER_IP));
+  Serial.print(":");
+  Serial.print(String(MQTT_FALLBACK_SERVER_PORT));
+  Serial.println(" ... ");
+
+  return doConnect();
+}
+
+bool doConnect() {
+  bool isConnected = pubSubClient.connect(SENSORNAME.c_str(), MQTT_USER, MQTT_PASSWORD);
+  if (isConnected == true) {
+    Serial.println("connected");    
+  } else {
+    Serial.println("ERROR: failed, rc=" + pubSubClient.state());
+    printState();
+  }
+  
+  return isConnected;
+}
+
+bool printState() {
+  switch (pubSubClient.state()) {
+    case -4:
+      Serial.println("Server didn't respond within the keepalive time");
+      break;
+    case -3: 
+      Serial.println("Network connection was broken");
+      break;
+    case -2: 
+      Serial.println("Network connection failed");
+      break;
+    case -1: 
+      Serial.println("Client is disconnected cleanly");
+      break;
+    case 0: 
+      Serial.println("Cient is connected");
+      break;
+    case 1: 
+      Serial.println("Server doesn't support the requested version of MQTT");
+      break;
+    case 2: 
+      Serial.println("Server rejected the client identifier");
+      break;
+    case 3: 
+      Serial.println("Server was unable to accept the connection");
+      break;
+    case 4: 
+      Serial.println("username/password were rejected");
+      break;
+    case 5: 
+      Serial.println("Client was not authorized to connect");
+      break;
+  }
+}
+
+void subscribeToTopics() {
+  Serial.println("Subscribe to " + String(PANIC_TOPIC));
+  pubSubClient.subscribe(PANIC_TOPIC);
+  Serial.println("Subscribe to " + String(NIGHT_MODE_TOPIC));
+  pubSubClient.subscribe(NIGHT_MODE_TOPIC);
+  Serial.println("Subscribe to " + String(BLINDS_COMMAND_TOPIC));
+  pubSubClient.subscribe(BLINDS_COMMAND_TOPIC);
+  Serial.println("Subscribe to " + String(BLINDS_POSITION_TOPIC));
+  pubSubClient.subscribe(BLINDS_POSITION_TOPIC);
+  Serial.println("Subscribe to " + String(BLINDS_ADMIN_COMMAND_TOPIC));
+  pubSubClient.subscribe(BLINDS_ADMIN_COMMAND_TOPIC);
+  Serial.println("Subscribe to " + String(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC));
+  pubSubClient.subscribe(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC);
+  Serial.println("Subscribe to " + String(BLINDS_RESET_TOPIC));
+  pubSubClient.subscribe(BLINDS_RESET_TOPIC);
 }
 
 String ipAddress2String(const IPAddress& ipAddress){
@@ -286,34 +514,32 @@ String ipAddress2String(const IPAddress& ipAddress){
 }
 
 void loop(void) {
-  if (!pubSubClient.connected()) {
-    reconnect();
-  }
-
+  reconnect();
+  pubSubClient.loop();
+    
   if (isInitial == true) {
-    publishStateAndIp();
+    sendAlive();
+    publishIp();
   }
   
-  pubSubClient.loop();
-
-  ArduinoOTA.handle();
-
   t.update();
+  
+  ArduinoOTA.handle();
 
   isInitial = false;
 }
 
-void publishStateAndIp() {
+void publishIp() {
   String ipString = String(ipAddress2String(WiFi.localIP()));
   ipString.toCharArray(ipBuffer, ipString.length() + 1); 
-  
-  doPrintln("Publish ESP state and ip");
-  doPrintln("IP address: " + ipString);
 
-  pubSubClient.publish(ESP_STATE_TOPIC, "online", false);
-  pubSubClient.publish(ESP_IP_TOPIC, ipBuffer, false);
-
-  Serial.println("Done publishing state and ip");
+  bool publishedIp = pubSubClient.publish(ESP_IP_TOPIC, ipBuffer, false);
+  if (publishedIp == true) {
+    doPrintln("Published IP");
+  } else {
+    doPrintln("Could not publish IP.");
+    isInitial = false;
+  }
 }
 
 void handlePanicTopic(String payload) {
@@ -324,9 +550,11 @@ void handlePanicTopic(String payload) {
 
     panicMode = true;
     moveDown(0, true);
+    //blockManual ?! 
   } else if (panicMode != false && payload.equals("OFF")) {
     panicMode = false;
     doPrintln("Set panic mode = false");
+    //unblockManual ?! 
   }
 }
 
@@ -340,55 +568,60 @@ void handleAdminCommandTopic(String payload) {
 
 void handleCommandTopic(String payload) {
   commands++;
-    if (commands == 1) {
-      if (payload.equals(String(BLINDS_CLOSE))) {
-        currentPosition = 0;
-        doPrintln("Set initial blinds position to 0");
-      } else if (payload.equals(String(BLINDS_OPEN))) {
-        currentPosition = 100;
-        doPrintln("Set initial blinds position to 100");
-      }
-      return;  
+  if (commands >= 1000000) {
+    // reset command counter to prevent overflow
+    commands = 10;
+  }
+  /*
+  if (commands == 1) {
+    if (payload.equals(String(BLINDS_CLOSE))) {
+      currentPosition = 0;
+      doPrintln("Set initial blinds position to 0");
+    } else if (payload.equals(String(BLINDS_OPEN))) {
+      currentPosition = 100;
+      doPrintln("Set initial blinds position to 100");
     }
+    return;  
+  }*/
 
-    if (panicMode == true) {
-      doPrintln("Panic mode prevents action");
+  if (panicMode == true) {
+    doPrintln("Panic mode prevents action");
+    return;
+  }
+
+  if (payload.equals(String(BLINDS_CLOSE))) {
+    if (currentPosition == 0) {
+      doPrintln("Blinds are already down");
       return;
     }
 
-    if (payload.equals(String(BLINDS_CLOSE))) {
-      if (currentPosition == 0) {
-        doPrintln("Blinds are already down");
-        return;
-      }
-
-      if (nightMode == true) {
-        doPrintln("Night mode prevents action");
-        return;
-      }
-
-      doPrintln("handleCommandTopic() => moveDown");
-      moveDown(0);
-    } else if (payload.equals(String(BLINDS_OPEN))) {
-      if (currentPosition == 100) {
-        doPrintln("Blinds are already up");
-        return;
-      }
-
-      if (nightMode == true) {
-        doPrintln("Night mode prevents action");
-        return;
-      }
-
-      doPrintln("handleCommandTopic() => moveUp");
-      moveUp(100);
+    if (nightMode == true) {
+      doPrintln("Night mode prevents action");
+      //return;
     }
+
+    doPrintln("handleCommandTopic() => moveDown");
+    moveDown(0);
+  } else if (payload.equals(String(BLINDS_OPEN))) {
+    if (currentPosition == 100) {
+      doPrintln("Blinds are already up");
+      return;
+    }
+
+    if (nightMode == true) {
+      doPrintln("Night mode prevents action");
+      return;
+    }
+
+    doPrintln("handleCommandTopic() => moveUp");
+    moveUp(100);
+  }
 }
 
 void handleNightModeTopic(String payload) {
-  if (nightMode != true && payload.equals("ON")) {
+  if (nightMode == false && payload.equals("ON")) {
     nightMode = true;  
-  } else if (nightMode != false && payload.equals("ON")) {
+  } else if (nightMode == true && payload.equals("OFF")) {
     nightMode = false;  
   }
 }
@@ -443,6 +676,7 @@ void unblockManualControl() {
   digitalWrite(POWER_LINE_PIN, HIGH);
   delay(100);
 }
+
 
 int getDuration(int currentPosition, int newPosition) {
   // current: 0, new: 50
@@ -504,7 +738,16 @@ void waitForBlindsToMove(int duration) {
   doPrintln("Move blinds for " + String(duration) + " ms");
 
   digitalWrite(LED_PIN, HIGH);
-  delay(duration);
+
+  // Send alive messages in between to keep connection alive
+  int interval = 2000;
+  while (duration > 0) {
+    Serial.println("Remaining duration: " + String(duration));
+    delay(interval);
+    sendAlive();
+    duration -= interval;
+  }
+  
   digitalWrite(LED_PIN, LOW);
 }
 
@@ -512,22 +755,23 @@ void updateBlindsPosition(int newPosition) {
   doPrintln("Set currentposition variable from " + String(currentPosition) + " to " + String(newPosition));
   currentPosition = newPosition;
 
-  doPrint("Publish blinds state: \"");
-  boolean publishedState;
-  if (newPosition == 0) {
-    pubSubClient.publish(BLINDS_STATE_TOPIC, "closed", true);
-    doPrint("closed");
+  reconnect();
+  String state = (newPosition == 0) ? "closed" : "opened";
+  bool publishedState = pubSubClient.publish(BLINDS_STATE_TOPIC, state.c_str(), true);
+  pubSubClient.loop();
+  if (publishedState == true) {
+    doPrintln("Published blinds state: \"" + state + "\" ");
   } else {
-    pubSubClient.publish(BLINDS_STATE_TOPIC, "opened", true);
-    doPrint("opened");
+    doPrintln("Failed to publish blinds state: \"" + state + "\" ");
   }
-  
-  doPrintln("\" to " + String(BLINDS_STATE_TOPIC));
 
   String positionString = String(newPosition); 
-  positionString.toCharArray(posBuffer, positionString.length() + 1); 
-  doPrintln("Publish blinds position: \"" + positionString + "\" to " + String(BLINDS_POSITION_STATE_TOPIC));
-  pubSubClient.publish(BLINDS_POSITION_STATE_TOPIC, posBuffer, true);
+  bool publishedPosition = pubSubClient.publish(BLINDS_POSITION_STATE_TOPIC, positionString.c_str(), true);
+  if (publishedPosition == true) {
+    doPrintln("Published blinds position: \"" + positionString + "\" to " + String(BLINDS_POSITION_STATE_TOPIC));
+  } else {
+    doPrintln("Failed to publish blinds position: \"" + positionString + "\" to " + String(BLINDS_POSITION_STATE_TOPIC));  
+  }
 }
 
 void doPrint(String msg) {
