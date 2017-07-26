@@ -137,7 +137,7 @@ void setup(void){
   setupMqtt();
   setupOTA();
   setupSensors();
-  t.every(60000, sendAlive);
+  t.every(10000, sendAlive);
 }
 
 boolean isSensorNode() {
@@ -159,6 +159,7 @@ if (isSensorNode()) {
     t.every(600000, sendSensorState);  
   }
 }
+
 void setupPins() {
   Serial.println("Set up pins");
   
@@ -492,18 +493,31 @@ bool printState() {
 void subscribeToTopics() {
   Serial.println("Subscribe to " + String(PANIC_TOPIC));
   pubSubClient.subscribe(PANIC_TOPIC);
+  pubSubClient.loop();
+  
   Serial.println("Subscribe to " + String(NIGHT_MODE_TOPIC));
   pubSubClient.subscribe(NIGHT_MODE_TOPIC);
+  pubSubClient.loop();
+  
   Serial.println("Subscribe to " + String(BLINDS_COMMAND_TOPIC));
   pubSubClient.subscribe(BLINDS_COMMAND_TOPIC);
+  pubSubClient.loop();
+  
   Serial.println("Subscribe to " + String(BLINDS_POSITION_TOPIC));
   pubSubClient.subscribe(BLINDS_POSITION_TOPIC);
+  pubSubClient.loop();
+  
   Serial.println("Subscribe to " + String(BLINDS_ADMIN_COMMAND_TOPIC));
   pubSubClient.subscribe(BLINDS_ADMIN_COMMAND_TOPIC);
+  pubSubClient.loop();
+  
   Serial.println("Subscribe to " + String(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC));
   pubSubClient.subscribe(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC);
+  pubSubClient.loop();
+  
   Serial.println("Subscribe to " + String(BLINDS_RESET_TOPIC));
   pubSubClient.subscribe(BLINDS_RESET_TOPIC);
+  pubSubClient.loop();
 }
 
 String ipAddress2String(const IPAddress& ipAddress){
