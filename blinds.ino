@@ -51,7 +51,7 @@ const PROGMEM uint8_t DOWN_PIN = D1;
 const PROGMEM uint8_t POWER_LINE_PIN = D5;
 const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN};
 
-String identifier = "5";
+String identifier = "3";
 //const String SENSORNAME = "blinds-" + identifier;
 const String SENSORNAME = "tester";
 const int sensorNodes[] = {6, 1};
@@ -82,20 +82,19 @@ const uint8_t BUFFER_SIZE = 20;
 char msgBuffer[BUFFER_SIZE]; 
 char ipBuffer[BUFFER_SIZE];
 
-const PROGMEM char* ESP_IP_TOPIC = "home-assistant/esp/blinds/5/ip";
-const PROGMEM char* SENSOR_TOPIC = "home-assistant/blinds/5/sensor";
-
-const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/5/status";
-const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/5/command";
-const PROGMEM char* BLINDS_HEALTH_TOPIC = "home-assistant/blinds/5/health";
-const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/5/command/admin";
-const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/5/position/command";
-const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/5/position/status";
-const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/5/log";
+const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/3/status";
+const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/3/command";
+const PROGMEM char* BLINDS_HEALTH_TOPIC = "home-assistant/blinds/3/health";
+const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/3/command/admin";
+const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/3/position/command";
+const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/3/position/status";
+const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/3/log";
+const PROGMEM char* IP_TOPIC = "home-assistant/blinds/3/ip";
+const PROGMEM char* SENSOR_TOPIC = "home-assistant/blinds/3/sensor";
 
 /*
 char ESP_STATE_TOPIC[BUFFER_SIZE];
-char ESP_IP_TOPIC[BUFFER_SIZE];
+char IP_TOPIC[BUFFER_SIZE];
 char BLINDS_STATE_TOPIC[BUFFER_SIZE];
 char BLINDS_COMMAND_TOPIC[BUFFER_SIZE];
 char BLINDS_ADMIN_COMMAND_TOPIC[BUFFER_SIZE];
@@ -112,10 +111,10 @@ const String DISABLED = "DISABLED";
 
 const int BLINDS_DURATION = 24000; //ms
 
-boolean isInitial = true;
 int currentPosition;
 boolean nightMode = false;
 boolean panicMode = false;
+boolean initial = true;
 String manualControl = "ENABLED";
 
 WiFiClient wifiClient;
@@ -137,7 +136,7 @@ void setup(void){
   setupMqtt();
   setupOTA();
   setupSensors();
-  t.every(10000, sendAlive);
+  setupTimers();
 }
 
 boolean isSensorNode() {
@@ -154,9 +153,6 @@ void setupSensors() {
 if (isSensorNode()) {
     setupBmp();
     setupDHT();
-    t.every(100, checkMotion);
-    t.every(10000, checkSensors);
-    t.every(600000, sendSensorState);  
   }
 }
 
@@ -183,7 +179,7 @@ void setupPins() {
 void setupConstants() {
   /**
   espStateTopicStr.toCharArray(ESP_STATE_TOPIC, espStateTopicStr.length() + 1);
-  espIpTopicStr.toCharArray(ESP_IP_TOPIC, espIpTopicStr.length() + 1);
+  espIpTopicStr.toCharArray(IP_TOPIC, espIpTopicStr.length() + 1);
 
   blindsStateTopicStr.toCharArray(BLINDS_STATE_TOPIC, blindsStateTopicStr.length() + 1);
   blindsCommandTopicStr.toCharArray(BLINDS_COMMAND_TOPIC, blindsCommandTopicStr.length() + 1);
@@ -261,6 +257,17 @@ void setupDHT() {
   Serial.println("Set up DHT22 sensor");
   dht.begin();
 }
+
+void setupTimers() {
+  t.every(10000, sendAlive);
+  t.every(660000, publishIp); // every 11 minutes
+  if (isSensorNode()) {
+    t.every(100, checkMotion);
+    t.every(10000, checkSensors);
+    t.every(600000, sendSensorState); //every 10 minutes 
+  }
+}
+  
 
 void sendSensorState() {
   if (temperatureDHT != 0 && temperatureBMP != 0) {
@@ -530,29 +537,23 @@ String ipAddress2String(const IPAddress& ipAddress){
 void loop(void) {
   reconnect();
   pubSubClient.loop();
-    
-  if (isInitial == true) {
-    sendAlive();
-    publishIp();
-  }
-  
   t.update();
-  
   ArduinoOTA.handle();
-
-  isInitial = false;
+  if (initial == true) {
+    publishIp();
+    initial = false;  
+  }
 }
 
 void publishIp() {
   String ipString = String(ipAddress2String(WiFi.localIP()));
   ipString.toCharArray(ipBuffer, ipString.length() + 1); 
 
-  bool publishedIp = pubSubClient.publish(ESP_IP_TOPIC, ipBuffer, false);
+  bool publishedIp = pubSubClient.publish(IP_TOPIC, ipBuffer, false);
   if (publishedIp == true) {
     doPrintln("Published IP");
   } else {
     doPrintln("Could not publish IP.");
-    isInitial = false;
   }
 }
 
