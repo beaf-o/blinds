@@ -267,120 +267,6 @@ void setupTimers() {
     t.every(600000, sendSensorState); //every 10 minutes 
   }
 }
-  
-
-void sendSensorState() {
-  if (temperatureDHT != 0 && temperatureBMP != 0) {
-    temperatureAvg = (temperatureDHT + temperatureBMP) / 2;  
-  } else if (temperatureDHT == 0 && temperatureBMP != 0) {
-    temperatureAvg = temperatureBMP;
-  } else if (temperatureDHT != 0 && temperatureBMP == 0) {
-    temperatureAvg = temperatureDHT;
-  } else {
-    temperatureAvg = 0.00;
-  }
-
-  int brightness = 0;
-  if (ldr != 0) {
-    brightness = 1023 - ldr;  
-  }
-
-  float correctedPressure = 0.00;
-  if (pressure != 0) {
-    correctedPressure = (pressure + 500)/100; 
-  }
-  
-  StaticJsonBuffer<BUFFER_SIZE> jsonBuffer;
-
-  JsonObject& root = jsonBuffer.createObject();
-  root["temperature"] = (String)temperatureAvg;
-  root["temperature_dht"] = (String)temperatureDHT;
-  root["temperature_bmp"] = (String)temperatureBMP;
-  root["humidity"] = (String)humidity;
-  root["brightness"] = (String)brightness;
-  root["pressure"] = (String)correctedPressure;
-  root["altitude"] = (String)altitude;
-  
-  root["motion"] = (String)motionStatus;
-
-  char buffer[root.measureLength() + 1];
-  root.printTo(buffer, sizeof(buffer));
-
-  Serial.println(buffer);
-  pubSubClient.publish(SENSOR_TOPIC, buffer, true);
-}
-
-void sendAlive() {
-  bool sent = pubSubClient.publish(BLINDS_HEALTH_TOPIC, "alive", true);
-  if (sent == true) {
-    Serial.println("Successfully sent alive.");
-  } else {
-    Serial.println("Failed to send alive.");
-  }
-}
-
-bool checkBoundSensor(float newValue, float prevValue, float maxDiff) {
-  return newValue < prevValue - maxDiff || newValue > prevValue + maxDiff;
-}
-
-void checkMotion() {
-  pirValue = digitalRead(PIR_PIN);
-
-  if (pirValue == LOW && pirStatus != 1) {
-    motionStatus = "standby";
-    pirStatus = 1;
-    sendSensorState();
-   
-  } else if (pirValue == HIGH && pirStatus != 2) {
-    motionStatus = "action";
-    pirStatus = 2;
-    sendSensorState();
-  }
-}
-
-void checkSensors() {
-  bool hasChanges = false;
-
-  float temperatureBMPNew = bmp.readTemperature();
-  if (checkBoundSensor(temperatureBMPNew, temperatureBMP, diffTemperature)) {
-    temperatureBMP = temperatureBMPNew;
-    hasChanges = true;
-  }
-
-  float temperatureDHTNew = dht.readTemperature(); //to use celsius remove the true text inside the parentheses  
-  if (checkBoundSensor(temperatureDHTNew, temperatureDHT, diffTemperature)) {
-    temperatureDHT = temperatureDHTNew;
-    hasChanges = true;
-  }
-
-  float pressureNew = bmp.readPressure();
-  if (checkBoundSensor(pressureNew, pressure, diffPressure)) {
-    pressure = pressureNew;
-    hasChanges = true;
-  }
-
-  float altitudeNew = bmp.readAltitude(1021);
-  if (checkBoundSensor(altitudeNew, altitude, diffAltitude)) {
-    altitude = altitudeNew;
-    hasChanges = true;
-  }
-
-  float humidityNew = dht.readHumidity();
-  if (checkBoundSensor(humidityNew, humidity, diffHumidity)) {
-    humidity = humidityNew;
-    hasChanges = true;
-  }
-
-  int ldrNew = analogRead(LDR_PIN);
-  if (checkBoundSensor(ldrNew, ldr, diffLdr)) {
-    ldr = ldrNew;
-    hasChanges = true;
-  }
-
-  if (hasChanges == true) {
-    sendSensorState();
-  }
-}
 
 void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
   // concat the payload into a string
@@ -410,6 +296,17 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
     handlePositionTopic(payload.toInt());
   } else if (String(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC).equals(p_topic)) {
     handleManualControlTopic(payload);
+  }
+}
+
+void loop(void) {
+  reconnect();
+  pubSubClient.loop();
+  t.update();
+  ArduinoOTA.handle();
+  if (initial == true) {
+    publishIp();
+    initial = false;  
   }
 }
 
@@ -527,22 +424,124 @@ void subscribeToTopics() {
   pubSubClient.loop();
 }
 
+void sendSensorState() {
+  if (temperatureDHT != 0 && temperatureBMP != 0) {
+    temperatureAvg = (temperatureDHT + temperatureBMP) / 2;  
+  } else if (temperatureDHT == 0 && temperatureBMP != 0) {
+    temperatureAvg = temperatureBMP;
+  } else if (temperatureDHT != 0 && temperatureBMP == 0) {
+    temperatureAvg = temperatureDHT;
+  } else {
+    temperatureAvg = 0.00;
+  }
+
+  int brightness = 0;
+  if (ldr != 0) {
+    brightness = 1023 - ldr;  
+  }
+
+  float correctedPressure = 0.00;
+  if (pressure != 0) {
+    correctedPressure = (pressure + 500)/100; 
+  }
+  
+  StaticJsonBuffer<BUFFER_SIZE> jsonBuffer;
+
+  JsonObject& root = jsonBuffer.createObject();
+  root["temperature"] = (String)temperatureAvg;
+  root["temperature_dht"] = (String)temperatureDHT;
+  root["temperature_bmp"] = (String)temperatureBMP;
+  root["humidity"] = (String)humidity;
+  root["brightness"] = (String)brightness;
+  root["pressure"] = (String)correctedPressure;
+  root["altitude"] = (String)altitude;
+  
+  root["motion"] = (String)motionStatus;
+
+  char buffer[root.measureLength() + 1];
+  root.printTo(buffer, sizeof(buffer));
+
+  Serial.println(buffer);
+  pubSubClient.publish(SENSOR_TOPIC, buffer, true);
+}
+
+void sendAlive() {
+  bool sent = pubSubClient.publish(BLINDS_HEALTH_TOPIC, "alive", true);
+  if (sent == true) {
+    Serial.println("Successfully sent alive.");
+  } else {
+    Serial.println("Failed to send alive.");
+  }
+}
+
+bool checkBoundSensor(float newValue, float prevValue, float maxDiff) {
+  return newValue < prevValue - maxDiff || newValue > prevValue + maxDiff;
+}
+
+void checkMotion() {
+  pirValue = digitalRead(PIR_PIN);
+
+  if (pirValue == LOW && pirStatus != 1) {
+    motionStatus = "standby";
+    pirStatus = 1;
+    sendSensorState();
+   
+  } else if (pirValue == HIGH && pirStatus != 2) {
+    motionStatus = "action";
+    pirStatus = 2;
+    sendSensorState();
+  }
+}
+
+void checkSensors() {
+  bool hasChanges = false;
+
+  float temperatureBMPNew = bmp.readTemperature();
+  if (checkBoundSensor(temperatureBMPNew, temperatureBMP, diffTemperature)) {
+    temperatureBMP = temperatureBMPNew;
+    hasChanges = true;
+  }
+
+  float temperatureDHTNew = dht.readTemperature(); //to use celsius remove the true text inside the parentheses  
+  if (checkBoundSensor(temperatureDHTNew, temperatureDHT, diffTemperature)) {
+    temperatureDHT = temperatureDHTNew;
+    hasChanges = true;
+  }
+
+  float pressureNew = bmp.readPressure();
+  if (checkBoundSensor(pressureNew, pressure, diffPressure)) {
+    pressure = pressureNew;
+    hasChanges = true;
+  }
+
+  float altitudeNew = bmp.readAltitude(1021);
+  if (checkBoundSensor(altitudeNew, altitude, diffAltitude)) {
+    altitude = altitudeNew;
+    hasChanges = true;
+  }
+
+  float humidityNew = dht.readHumidity();
+  if (checkBoundSensor(humidityNew, humidity, diffHumidity)) {
+    humidity = humidityNew;
+    hasChanges = true;
+  }
+
+  int ldrNew = analogRead(LDR_PIN);
+  if (checkBoundSensor(ldrNew, ldr, diffLdr)) {
+    ldr = ldrNew;
+    hasChanges = true;
+  }
+
+  if (hasChanges == true) {
+    sendSensorState();
+  }
+}
+
 String ipAddress2String(const IPAddress& ipAddress){
   return String(ipAddress[0]) + String(".") +\
     String(ipAddress[1]) + String(".") +\
     String(ipAddress[2]) + String(".") +\
     String(ipAddress[3]); 
-}
-
-void loop(void) {
-  reconnect();
-  pubSubClient.loop();
-  t.update();
-  ArduinoOTA.handle();
-  if (initial == true) {
-    publishIp();
-    initial = false;  
-  }
 }
 
 void publishIp() {
