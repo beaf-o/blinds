@@ -51,9 +51,8 @@ const PROGMEM uint8_t DOWN_PIN = D1;
 const PROGMEM uint8_t POWER_LINE_PIN = D5;
 const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN};
 
-String identifier = "3";
-//const String SENSORNAME = "blinds-" + identifier;
-const String SENSORNAME = "tester";
+String identifier = "4";
+const String SENSORNAME = "blinds-" + identifier;
 const int sensorNodes[] = {6, 1};
 const int sensorNodeCount = 2;
 
@@ -82,15 +81,15 @@ const uint8_t BUFFER_SIZE = 20;
 char msgBuffer[BUFFER_SIZE]; 
 char ipBuffer[BUFFER_SIZE];
 
-const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/3/status";
-const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/3/command";
-const PROGMEM char* BLINDS_HEALTH_TOPIC = "home-assistant/blinds/3/health";
-const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/3/command/admin";
-const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/3/position/command";
-const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/3/position/status";
-const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/3/log";
-const PROGMEM char* IP_TOPIC = "home-assistant/blinds/3/ip";
-const PROGMEM char* SENSOR_TOPIC = "home-assistant/blinds/3/sensor";
+const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/4/status";
+const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/4/command";
+const PROGMEM char* BLINDS_HEALTH_TOPIC = "home-assistant/blinds/4/health";
+const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/4/command/admin";
+const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/4/position/command";
+const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/4/position/status";
+const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/4/log";
+const PROGMEM char* IP_TOPIC = "home-assistant/blinds/4/ip";
+const PROGMEM char* SENSOR_TOPIC = "home-assistant/blinds/4/sensor";
 
 /*
 char ESP_STATE_TOPIC[BUFFER_SIZE];
@@ -260,7 +259,7 @@ void setupDHT() {
 
 void setupTimers() {
   t.every(10000, sendAlive);
-  t.every(660000, publishIp); // every 11 minutes
+  t.every(60000, publishIp); // every minute
   if (isSensorNode()) {
     t.every(100, checkMotion);
     t.every(10000, checkSensors);
@@ -325,13 +324,14 @@ void reconnect() {
 }
 
 bool connectToPrimary() {
+  pubSubClient.setServer(MQTT_SERVER_IP, MQTT_SERVER_PORT);
+  
   Serial.print("Attempting primary MQTT connection to ");
   Serial.print(String(MQTT_SERVER_IP));
   Serial.print(":");
   Serial.print(String(MQTT_SERVER_PORT));
   Serial.println(" ... ");
 
-  pubSubClient.setServer(MQTT_SERVER_IP, MQTT_SERVER_PORT);
   return doConnect();
 }
 
@@ -708,6 +708,10 @@ int getDuration(int currentPosition, int newPosition) {
 }
 
 void moveUp(int newPosition) {
+  if (newPosition > 100) {
+    newPosition = 100;  
+  }
+  
   blockManualControl();
 
   doPrintln("Move blinds up to position " + String(newPosition));
@@ -729,6 +733,10 @@ void moveDown(int newPosition) {
 }
 
 void moveDown(int newPosition, boolean forceDuration) {
+  if (newPosition < 0) {
+    newPosition = 0;  
+  }
+  
   blockManualControl();
 
   doPrintln("Move blinds down to position " + String(newPosition));
