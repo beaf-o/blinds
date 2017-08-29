@@ -13,7 +13,7 @@
 #include "Timer.h"
 #include "Config.h"
 
-#include <Adafruit_Sensor.h>
+//#include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
 #define BMP_SCK 13
 #define BMP_MISO 12
@@ -53,7 +53,11 @@ const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN};
 
 String identifier = "4";
 const String SENSORNAME = "blinds-" + identifier;
+<<<<<<< HEAD
 const int sensorNodes[] = {6, 1};
+=======
+const int sensorNodes[] = {1, 6};
+>>>>>>> increased buffer size, changed timer, added intermediate state
 const int sensorNodeCount = 2;
 
 const PROGMEM char* NIGHT_MODE_TOPIC = "home-assistant/nightmode";
@@ -77,7 +81,7 @@ String blindsPositionStateTopicStr = mainTopicsPrefix + "/position/status";
 */
 
 // buffer used to send/receive data with MQTT
-const uint8_t BUFFER_SIZE = 20;
+const uint8_t BUFFER_SIZE = 222;
 char msgBuffer[BUFFER_SIZE]; 
 char ipBuffer[BUFFER_SIZE];
 
@@ -259,13 +263,133 @@ void setupDHT() {
 
 void setupTimers() {
   t.every(10000, sendAlive);
+<<<<<<< HEAD
   t.every(60000, publishIp); // every minute
+=======
+  t.every(120000, publishIp); // every 2 minutes
+>>>>>>> increased buffer size, changed timer, added intermediate state
   if (isSensorNode()) {
     t.every(100, checkMotion);
     t.every(10000, checkSensors);
     t.every(600000, sendSensorState); //every 10 minutes 
   }
 }
+<<<<<<< HEAD
+=======
+  
+
+void sendSensorState() {
+  if (temperatureDHT != 0 && temperatureBMP != 0) {
+    temperatureAvg = (temperatureDHT + temperatureBMP) / 2;  
+  } else if (temperatureDHT == 0 && temperatureBMP != 0) {
+    temperatureAvg = temperatureBMP;
+  } else if (temperatureDHT != 0 && temperatureBMP == 0) {
+    temperatureAvg = temperatureDHT;
+  } else {
+    temperatureAvg = 0.00;
+  }
+
+  int brightness = 0;
+  if (ldr != 0) {
+    brightness = 1023 - ldr;  
+  }
+
+  float correctedPressure = 0.00;
+  if (pressure != 0) {
+    correctedPressure = (pressure + 500)/100; 
+  }
+  
+  StaticJsonBuffer<BUFFER_SIZE> jsonBuffer;
+
+  JsonObject& root = jsonBuffer.createObject();
+  root["temperature"] = (String)temperatureAvg;
+  root["temperature_dht"] = (String)temperatureDHT;
+  root["temperature_bmp"] = (String)temperatureBMP;
+  root["humidity"] = (String)humidity;
+  root["brightness"] = (String)brightness;
+  root["pressure"] = (String)correctedPressure;
+  root["altitude"] = (String)altitude;
+  root["motion"] = (String)motionStatus;
+
+  char buffer[root.measureLength() + 1];
+  root.printTo(buffer, sizeof(buffer));
+
+  Serial.println(buffer);
+  pubSubClient.publish(SENSOR_TOPIC, buffer, true);
+}
+
+void sendAlive() {
+  bool sent = pubSubClient.publish(BLINDS_HEALTH_TOPIC, "alive", true);
+  if (sent == true) {
+    Serial.println("Successfully sent alive.");
+  } else {
+    Serial.println("Failed to send alive.");
+  }
+}
+
+bool checkBoundSensor(float newValue, float prevValue, float maxDiff) {
+  return newValue < prevValue - maxDiff || newValue > prevValue + maxDiff;
+}
+
+void checkMotion() {
+  pirValue = digitalRead(PIR_PIN);
+
+  if (pirValue == LOW && pirStatus != 1) {
+    motionStatus = "standby";
+    pirStatus = 1;
+    sendSensorState();
+   
+  } else if (pirValue == HIGH && pirStatus != 2) {
+    motionStatus = "action";
+    pirStatus = 2;
+    sendSensorState();
+  }
+}
+
+void checkSensors() {
+  bool hasChanges = false;
+
+  float temperatureBMPNew = bmp.readTemperature();
+  if (checkBoundSensor(temperatureBMPNew, temperatureBMP, diffTemperature)) {
+    temperatureBMP = temperatureBMPNew;
+    hasChanges = true;
+  }
+
+  float temperatureDHTNew = dht.readTemperature(); //to use celsius remove the true text inside the parentheses  
+  if (checkBoundSensor(temperatureDHTNew, temperatureDHT, diffTemperature)) {
+    temperatureDHT = temperatureDHTNew;
+    hasChanges = true;
+  }
+
+  float pressureNew = bmp.readPressure();
+  if (checkBoundSensor(pressureNew, pressure, diffPressure)) {
+    pressure = pressureNew;
+    hasChanges = true;
+  }
+
+  float altitudeNew = bmp.readAltitude(1021);
+  if (checkBoundSensor(altitudeNew, altitude, diffAltitude)) {
+    altitude = altitudeNew;
+    hasChanges = true;
+  }
+
+  float humidityNew = dht.readHumidity();
+  if (checkBoundSensor(humidityNew, humidity, diffHumidity)) {
+    humidity = humidityNew;
+    hasChanges = true;
+  }
+
+  int ldrNew = analogRead(LDR_PIN);
+  if (checkBoundSensor(ldrNew, ldr, diffLdr)) {
+    ldr = ldrNew;
+    hasChanges = true;
+  }
+
+  if (hasChanges == true) {
+    sendSensorState();
+  }
+}
+>>>>>>> increased buffer size, changed timer, added intermediate state
 
 void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
   // concat the payload into a string
@@ -604,6 +728,7 @@ void handleCommandTopic(String payload) {
   }
 
   if (payload.equals(String(BLINDS_CLOSE))) {
+    /**
     if (currentPosition == 0) {
       doPrintln("Blinds are already down");
       return;
@@ -611,17 +736,20 @@ void handleCommandTopic(String payload) {
 
     if (nightMode == true) {
       doPrintln("Night mode prevents action");
-      //return;
+      return;
     }
-
+    */
+    
     doPrintln("handleCommandTopic() => moveDown");
     moveDown(0);
   } else if (payload.equals(String(BLINDS_OPEN))) {
-    if (currentPosition == 100) {
+    /**
+     if (currentPosition == 100) {
       doPrintln("Blinds are already up");
       return;
     }
-
+    */
+    
     if (nightMode == true) {
       doPrintln("Night mode prevents action");
       return;
@@ -633,9 +761,9 @@ void handleCommandTopic(String payload) {
 }
 
 void handleNightModeTopic(String payload) {
-  if (nightMode == false && payload.equals("ON")) {
+  if (payload.equals("ON")) {
     nightMode = true;  
-  } else if (nightMode == true && payload.equals("OFF")) {
+  } else if (payload.equals("OFF")) {
     nightMode = false;  
   }
 }
@@ -660,16 +788,15 @@ void handlePositionTopic(int newPosition) {
     doPrintln("Panic mode prevents action");
     return;
   }
-    
-  if (nightMode == true) {
-    doPrintln("Night mode prevents action");
-    return;
-  }
 
   doPrintln("currentPosition: " + String(currentPosition));
   doPrintln("newPosition: " + String(newPosition));
 
   if (newPosition > currentPosition) {
+    if (nightMode == true) {
+      doPrintln("Night mode prevents action");
+      return;
+    }
     doPrintln("handlePositionTopic() => moveUp()");
     moveUp(newPosition);
   } else {
@@ -778,7 +905,15 @@ void updateBlindsPosition(int newPosition) {
   currentPosition = newPosition;
 
   reconnect();
-  String state = (newPosition == 0) ? "closed" : "opened";
+  String state;
+  if (newPosition == 0) {
+    state = "closed";
+  } else if (newPosition == 100) {
+    state =  "opened";
+  } else {
+    state =  "intermediate";
+  }
+  
   bool publishedState = pubSubClient.publish(BLINDS_STATE_TOPIC, state.c_str(), true);
   pubSubClient.loop();
   if (publishedState == true) {
@@ -798,20 +933,20 @@ void updateBlindsPosition(int newPosition) {
 
 void doPrint(String msg) {
   Serial.print(msg);
-  //publishLog(msg);
+  publishLog(msg);
 }
 
 void doPrintln(String msg) {
   Serial.println(msg);
-  //publishLog(msg);
+  publishLog(msg);
 }
 
 void publishLog(String msg) {
   String logMsg = "[" + SENSORNAME + "] " + msg;
 
-  char logBuffer[50];
-  logMsg.toCharArray(logBuffer, logMsg.length() + 1); 
+  //char logBuffer[50];
+  //logMsg.toCharArray(logBuffer, logMsg.length() + 1); 
 
-  pubSubClient.publish(BLINDS_LOG_TOPIC, logBuffer, true);
+  pubSubClient.publish(BLINDS_LOG_TOPIC, logMsg.c_str(), false);
   delay(100);
 }
