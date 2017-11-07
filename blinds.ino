@@ -51,34 +51,31 @@ const PROGMEM uint8_t DOWN_PIN = D1;
 const PROGMEM uint8_t POWER_LINE_PIN = D5;
 const int outputPins[] = {LED_PIN, UP_PIN, DOWN_PIN, POWER_LINE_PIN};
 
-String identifier = "10";
+String identifier = "3";
 const String SENSORNAME = "blinds-" + identifier;
-const int sensorNodes[] = {1, 6};
-const int sensorNodeCount = 2;
+const int sensorNodes[] = {1, 3, 6};
+const int sensorNodeCount = 3;
 
 // buffer used to send/receive data with MQTT
 const uint8_t BUFFER_SIZE = 222;
-char msgBuffer[BUFFER_SIZE];
-char ipBuffer[BUFFER_SIZE];
 
 const PROGMEM char* NIGHT_MODE_TOPIC = "home-assistant/nightmode";
+const PROGMEM char* DEBUG_MODE_TOPIC = "home-assistant/debug";
 const PROGMEM char* PANIC_TOPIC = "home-assistant/panic";
-const PROGMEM char* BLINDS_MANUAL_CONTROL_COMMAND_TOPIC = "home-assistant/blinds/manual/command";
-const PROGMEM char* BLINDS_MANUAL_CONTROL_STATE_TOPIC = "home-assistant/blinds/manual/status";
 const PROGMEM char* BLINDS_RESET_TOPIC = "home-assistant/blinds/reset";
 
-char testTopic[64];
 const PROGMEM char* BLINDS_TOPIC_PREFIX = "home-assistant/blinds/";
-
-const PROGMEM char* BLINDS_STATE_TOPIC = "home-assistant/blinds/4/status";
-const PROGMEM char* BLINDS_COMMAND_TOPIC = "home-assistant/blinds/4/command";
-const PROGMEM char* BLINDS_HEALTH_TOPIC = "home-assistant/blinds/4/health";
-const PROGMEM char* BLINDS_ADMIN_COMMAND_TOPIC = "home-assistant/blinds/4/command/admin";
-const PROGMEM char* BLINDS_POSITION_TOPIC = "home-assistant/blinds/4/position/command";
-const PROGMEM char* BLINDS_POSITION_STATE_TOPIC = "home-assistant/blinds/4/position/status";
-const PROGMEM char* BLINDS_LOG_TOPIC = "home-assistant/blinds/4/log";
-const PROGMEM char* IP_TOPIC = "home-assistant/blinds/4/ip";
-const PROGMEM char* SENSOR_TOPIC = "home-assistant/blinds/4/sensor";
+char blindsStatusTopic[64];
+char blindsCommandTopic[64];
+char blindsHealthTopic[64];
+char blindsAdminCommandTopic[64];
+char blindsPositionTopic[64];
+char blindsPositionStatusTopic[64];
+char blindsManualControlCommandTopic[64];
+char blindsManualControlStatusTopic[64];
+char blindsLogTopic[64];
+char blindsIpTopic[64];
+char blindsSensorTopic[64];
 
 const PROGMEM char* BLINDS_OPEN = "OPEN";
 const PROGMEM char* BLINDS_CLOSE = "CLOSE";
@@ -93,6 +90,7 @@ int currentPosition;
 boolean nightMode = false;
 boolean panicMode = false;
 boolean initial = true;
+boolean debugMode = false;
 String manualControl = "ENABLED";
 
 WiFiClient wifiClient;
@@ -155,17 +153,17 @@ void setupPins() {
 }
 
 void setupConstants() {
-  sprintf(testTopic, "%stest", BLINDS_TOPIC_PREFIX);
-
-  Serial.println((String) testTopic);
-  delay(60000);
-  /**
-  blindsStateTopicStr.toCharArray(BLINDS_STATE_TOPIC, blindsStateTopicStr.length() + 1);
-  blindsCommandTopicStr.toCharArray(BLINDS_COMMAND_TOPIC, blindsCommandTopicStr.length() + 1);
-  blindsAdminCommandTopicStr.toCharArray(BLINDS_ADMIN_COMMAND_TOPIC, blindsAdminCommandTopicStr.length() + 1);
-  blindsPositionTopicStr.toCharArray(BLINDS_POSITION_TOPIC, blindsPositionTopicStr.length() + 1);
-  blindsPositionStateTopicStr.toCharArray(BLINDS_POSITION_STATE_TOPIC, blindsPositionStateTopicStr.length() + 1);
-  */
+  sprintf(blindsStatusTopic, "%s%s/status", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsCommandTopic, "%s%s/command", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsAdminCommandTopic, "%s%s/command/admin", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsHealthTopic, "%s%s/health", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsPositionTopic, "%s%s/position/command", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsPositionStatusTopic, "%s%s/position/status", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsManualControlCommandTopic, "%s%s/manual/command", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsManualControlStatusTopic, "%s%s/manual/status", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsLogTopic, "%s%s/log", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsIpTopic, "%s%s/ip", BLINDS_TOPIC_PREFIX, identifier.c_str());
+  sprintf(blindsSensorTopic, "%s%s/sensor", BLINDS_TOPIC_PREFIX, identifier.c_str());
 }
 
 void setupWifi() {
@@ -285,7 +283,7 @@ void sendSensorState() {
   root.printTo(buffer, sizeof(buffer));
 
   Serial.println(buffer);
-  pubSubClient.publish(SENSOR_TOPIC, buffer, true);
+  pubSubClient.publish(blindsSensorTopic, buffer, false);
 }
 
 void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
@@ -306,24 +304,29 @@ void callback(char* p_topic, byte* p_payload, unsigned int p_length) {
     handlePanicTopic(payload);
   } else if (String(BLINDS_RESET_TOPIC).equals(p_topic)) {
     //handleResetTopic(payload);
-  } else if (String(BLINDS_COMMAND_TOPIC).equals(p_topic)) {
+  } else if (String(blindsCommandTopic).equals(p_topic)) {
     handleCommandTopic(payload);
-  } else if (String(BLINDS_ADMIN_COMMAND_TOPIC).equals(p_topic)) {
+  } else if (String(blindsAdminCommandTopic).equals(p_topic)) {
     handleAdminCommandTopic(payload);
   } else if (String(NIGHT_MODE_TOPIC).equals(p_topic)) {
     handleNightModeTopic(payload);
-  } else if (String(BLINDS_POSITION_TOPIC).equals(p_topic)) {
+  } else if (String(blindsPositionTopic).equals(p_topic)) {
     handlePositionTopic(payload.toInt());
-  } else if (String(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC).equals(p_topic)) {
+  } else if (String(blindsManualControlCommandTopic).equals(p_topic)) {
     handleManualControlTopic(payload);
+  } else if (String(DEBUG_MODE_TOPIC).equals(p_topic)) {
+    handleDebugModeTopic(payload);
   }
 }
 
 void loop(void) {
   reconnect();
   pubSubClient.loop();
+
   t.update();
+
   ArduinoOTA.handle();
+
   if (initial == true) {
     publishIp();
     initial = false;
@@ -333,7 +336,9 @@ void loop(void) {
 void reconnect() {
   while (!pubSubClient.connected()) {
     printState();
-    if (connectToPrimary()) {
+    if (connectToPrimary(false)) {
+      subscribeToTopics();
+    } else if (connectToPrimary(true)) {
       subscribeToTopics();
     } else if (connectToSecondary()) {
       subscribeToTopics();
@@ -344,31 +349,26 @@ void reconnect() {
   }
 }
 
-bool connectToPrimary() {
-  pubSubClient.setServer(MQTT_SERVER_IP, MQTT_SERVER_PORT);
+bool connectToPrimary(boolean fallbackPort) {
+  uint16_t port = (fallbackPort == true) ? MQTT_SERVER_FALLBACK_PORT : MQTT_SERVER_PORT;
 
   Serial.print("Attempting primary MQTT connection to ");
-  Serial.print(String(MQTT_SERVER_IP));
-  Serial.print(":");
-  Serial.print(String(MQTT_SERVER_PORT));
-  Serial.println(" ... ");
-
-  return doConnect();
+  return doConnect(MQTT_SERVER_IP, port);
 }
 
 bool connectToSecondary() {
-  pubSubClient.setServer(MQTT_FALLBACK_SERVER_IP, MQTT_FALLBACK_SERVER_PORT);
-
   Serial.print("Attempting secondary MQTT connection to ");
-  Serial.print(String(MQTT_FALLBACK_SERVER_IP));
-  Serial.print(":");
-  Serial.print(String(MQTT_FALLBACK_SERVER_PORT));
-  Serial.println(" ... ");
-
-  return doConnect();
+  return doConnect(MQTT_FALLBACK_SERVER_IP, MQTT_FALLBACK_SERVER_PORT);
 }
 
-bool doConnect() {
+bool doConnect(const char* ip, uint16_t port) {
+  Serial.print(ip);
+  Serial.print(":");
+  Serial.print((String) port);
+  Serial.println(" ... ");
+
+  pubSubClient.setServer(ip, port);
+  
   bool isConnected = pubSubClient.connect(SENSORNAME.c_str(), MQTT_USER, MQTT_PASSWORD);
   if (isConnected == true) {
     Serial.println("connected");
@@ -424,29 +424,33 @@ void subscribeToTopics() {
   pubSubClient.subscribe(NIGHT_MODE_TOPIC);
   pubSubClient.loop();
 
-  Serial.println("Subscribe to " + String(BLINDS_COMMAND_TOPIC));
-  pubSubClient.subscribe(BLINDS_COMMAND_TOPIC);
+  Serial.println("Subscribe to " + String(blindsCommandTopic));
+  pubSubClient.subscribe(blindsCommandTopic);
   pubSubClient.loop();
 
-  Serial.println("Subscribe to " + String(BLINDS_POSITION_TOPIC));
-  pubSubClient.subscribe(BLINDS_POSITION_TOPIC);
+  Serial.println("Subscribe to " + String(blindsPositionTopic));
+  pubSubClient.subscribe(blindsPositionTopic);
   pubSubClient.loop();
 
-  Serial.println("Subscribe to " + String(BLINDS_ADMIN_COMMAND_TOPIC));
-  pubSubClient.subscribe(BLINDS_ADMIN_COMMAND_TOPIC);
+  Serial.println("Subscribe to " + String(blindsAdminCommandTopic));
+  pubSubClient.subscribe(blindsAdminCommandTopic);
   pubSubClient.loop();
 
-  Serial.println("Subscribe to " + String(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC));
-  pubSubClient.subscribe(BLINDS_MANUAL_CONTROL_COMMAND_TOPIC);
+  Serial.println("Subscribe to " + String(blindsManualControlCommandTopic));
+  pubSubClient.subscribe(blindsManualControlCommandTopic);
   pubSubClient.loop();
 
   Serial.println("Subscribe to " + String(BLINDS_RESET_TOPIC));
   pubSubClient.subscribe(BLINDS_RESET_TOPIC);
   pubSubClient.loop();
+
+  Serial.println("Subscribe to " + String(DEBUG_MODE_TOPIC));
+  pubSubClient.subscribe(DEBUG_MODE_TOPIC);
+  pubSubClient.loop();
 }
 
 void sendAlive() {
-  bool sent = pubSubClient.publish(BLINDS_HEALTH_TOPIC, "alive", true);
+  bool sent = pubSubClient.publish(blindsHealthTopic, "alive", false);
   if (sent == true) {
     Serial.println("Successfully sent alive.");
   } else {
@@ -526,9 +530,7 @@ String ipAddress2String(const IPAddress& ipAddress){
 
 void publishIp() {
   String ipString = String(ipAddress2String(WiFi.localIP()));
-  ipString.toCharArray(ipBuffer, ipString.length() + 1);
-
-  bool publishedIp = pubSubClient.publish(IP_TOPIC, ipBuffer, false);
+  bool publishedIp = pubSubClient.publish(blindsIpTopic, ipString.c_str(), false);
   if (publishedIp == true) {
     doPrintln("Published IP");
   } else {
@@ -566,17 +568,6 @@ void handleCommandTopic(String payload) {
     // reset command counter to prevent overflow
     commands = 10;
   }
-  /*
-  if (commands == 1) {
-    if (payload.equals(String(BLINDS_CLOSE))) {
-      currentPosition = 0;
-      doPrintln("Set initial blinds position to 0");
-    } else if (payload.equals(String(BLINDS_OPEN))) {
-      currentPosition = 100;
-      doPrintln("Set initial blinds position to 100");
-    }
-    return;
-  }*/
 
   if (panicMode == true) {
     doPrintln("Panic mode prevents action");
@@ -621,6 +612,14 @@ void handleNightModeTopic(String payload) {
     nightMode = true;
   } else if (payload.equals("OFF")) {
     nightMode = false;
+  }
+}
+
+void handleDebugModeTopic(String payload) {
+  if (payload.equals("ON")) {
+    debugMode = true;
+  } else if (payload.equals("OFF")) {
+    debugMode = false;
   }
 }
 
@@ -770,7 +769,7 @@ void updateBlindsPosition(int newPosition) {
     state =  "intermediate";
   }
 
-  bool publishedState = pubSubClient.publish(BLINDS_STATE_TOPIC, state.c_str(), true);
+  bool publishedState = pubSubClient.publish(blindsStatusTopic, state.c_str());
   pubSubClient.loop();
   if (publishedState == true) {
     doPrintln("Published blinds state: \"" + state + "\" ");
@@ -779,27 +778,29 @@ void updateBlindsPosition(int newPosition) {
   }
 
   String positionString = String(newPosition);
-  bool publishedPosition = pubSubClient.publish(BLINDS_POSITION_STATE_TOPIC, positionString.c_str(), true);
+  bool publishedPosition = pubSubClient.publish(blindsPositionStatusTopic, positionString.c_str());
   if (publishedPosition == true) {
-    doPrintln("Published blinds position: \"" + positionString + "\" to " + String(BLINDS_POSITION_STATE_TOPIC));
+    doPrintln("Published blinds position: \"" + positionString + "\"");
   } else {
-    doPrintln("Failed to publish blinds position: \"" + positionString + "\" to " + String(BLINDS_POSITION_STATE_TOPIC));
+    doPrintln("Failed to publish blinds position: \"" + positionString + "\"");
   }
 }
 
 void doPrint(String msg) {
   Serial.print(msg);
-  publishLog(msg);
+  if (debugMode == true) {
+    publishLog(msg);  
+  }
 }
 
 void doPrintln(String msg) {
   Serial.println(msg);
-  publishLog(msg);
+  if (debugMode == true) {
+    publishLog(msg);
+  }
 }
 
 void publishLog(String msg) {
   String logMsg = "[" + SENSORNAME + "] " + msg;
-
-  pubSubClient.publish(BLINDS_LOG_TOPIC, logMsg.c_str(), false);
-  delay(100);
+  pubSubClient.publish(blindsLogTopic, logMsg.c_str());
 }
